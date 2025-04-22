@@ -12,7 +12,6 @@ import torch.optim as optim
 import os
 import numpy as np
 from tqdm import tqdm
-
 # from torch.utils.tensorboard import SummaryWriter
 
 
@@ -311,7 +310,7 @@ class MAML:
             query_out_loss = torch.mean(loss_fn(
                 outputs[:, -1:] * 5.0, query_target_rating)).clone().detach().to("cpu")
             if not train:
-                self.eval_by_rating(outputs[:, -1:] * 5.0, query_target_rating / 5, loss_fn)
+                self.eval_by_rating(outputs[:, -1:] * 5.0, query_target_rating /5, loss_fn)
         else:
             query_loss = loss_fn(outputs * mask, gt * mask).sum() / mask.sum()
             mae_loss = mae_loss_fn(
@@ -504,7 +503,6 @@ class MAML:
         query_out_loss = torch.mean(torch.stack(task_mse_out_losses))
         mae_loss = torch.mean(torch.stack(task_mae_losses))
         return query_loss, query_out_loss, mae_loss
-
     # outer loop
     def _outer_loop(self, task_batch, train=None):
         """Computes the MAML loss and metrics on a batch of tasks.
@@ -572,7 +570,7 @@ class MAML:
         self.f1_list.clear()
         self.hit_list.clear()
 
-        return mse_loss_show, rmse_loss, mae_loss, avg_precision, avg_recall, avg_f1, avg_hit
+        return mse_loss_show, rmse_loss, mae_loss, avg_precision,avg_recall, avg_f1, avg_hit
 
     def train(self, train_steps):
         """Train the MAML.
@@ -611,7 +609,7 @@ class MAML:
                 mode="train", batch_size=self.batch_size, normalized=self.normalize_loss, use_label=self.args.use_label)
 
             # update meta paramters and return losses
-            mse_loss, rmse_loss, mae_loss, avg_precision, avg_recall, avg_f1, avg_hit = self._outer_loop(
+            mse_loss, rmse_loss, mae_loss, avg_precision,avg_recall, avg_f1, avg_hit = self._outer_loop(
                 train_task, train=True)
 
             # looging
@@ -642,8 +640,9 @@ class MAML:
                 val_f1 = []
                 val_hits = []
 
-                for j in range(math.ceil(len(val_batches) / self.batch_size)):
-                    mse_loss, _, mae_loss, avg_precision, avg_recall, avg_f1, avg_hit = self._outer_loop(
+
+                for j in range(math.ceil(len(val_batches)/self.batch_size)):
+                    mse_loss, _, mae_loss, avg_precision,avg_recall, avg_f1, avg_hit = self._outer_loop(
                         val_batches[j * self.batch_size: (j + 1) * self.batch_size], train=False)
                     val_mse_losses.append(mse_loss)
                     val_mae_losses.append(mae_loss)
@@ -717,8 +716,9 @@ class MAML:
         test_f1 = []
         test_hits = []
 
-        for i in range(math.ceil(len(test_batches) / self.batch_size)):
-            mse_loss, _, mae_loss, avg_precision, avg_recall, avg_f1, avg_hit = self._outer_loop(
+
+        for i in range(math.ceil(len(test_batches)/self.batch_size)):
+            mse_loss, _, mae_loss, avg_precision,avg_recall, avg_f1, avg_hit = self._outer_loop(
                 test_batches[i * self.batch_size: (i + 1) * self.batch_size], train=False)
             test_mse_losses.append(mse_loss)
             test_mae_losses.append(mae_loss)
