@@ -12,7 +12,7 @@ import os
 import numpy as np
 # from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
-SAVE_INTERVAL = 100
+SAVE_INTERVAL = 40
 LOG_INTERVAL = 1
 VAL_INTERVAL = 1
 

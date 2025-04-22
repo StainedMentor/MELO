@@ -5,9 +5,6 @@ from dataloader import DataLoader
 from options import args
 import math
 import wandb
-from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
-
-from sklearn.metrics import r2_score
 
 import torch
 import torch.nn as nn
@@ -15,12 +12,13 @@ import torch.optim as optim
 import os
 import numpy as np
 from tqdm import tqdm
+
 # from torch.utils.tensorboard import SummaryWriter
 
 
 # SAVE_INTERVAL = 50
 LOG_INTERVAL = 1
-VAL_INTERVAL = 20
+VAL_INTERVAL = 50
 
 
 class MAML:
@@ -80,7 +78,8 @@ class MAML:
         # inner loop optimizer - use learnable inner loop learning rates
         self._use_learnable_params = args.use_learnable_params
         self.inner_loop_optimizer = LSLRGradientDescentLearningRule(
-            device=self.device, total_num_inner_loop_steps=self._num_inner_steps, use_learnable_learning_rates=self._use_learnable_params, init_learning_rate=self._inner_lr)
+            device=self.device, total_num_inner_loop_steps=self._num_inner_steps,
+            use_learnable_learning_rates=self._use_learnable_params, init_learning_rate=self._inner_lr)
         self.inner_loop_optimizer.initialise(
             names_weights_dict=self.get_inner_loop_parameter_dict(params=self.model.named_parameters()))
 
@@ -104,9 +103,9 @@ class MAML:
         # Options for Adaptive Wighted Loss
         self.use_adaptive_loss = args.use_adaptive_loss
         self.use_adaptive_loss_weight = (
-            args.use_mlp and self.use_adaptive_loss)
+                args.use_mlp and self.use_adaptive_loss)
         self.use_lstm = (
-            args.use_lstm and self.use_adaptive_loss)
+                args.use_lstm and self.use_adaptive_loss)
         num_loss_dims = None
 
         # mlp mean loss network - aggregate item losses using mlp layers
@@ -114,35 +113,37 @@ class MAML:
             self._loss_lr = args.loss_lr
             num_loss_dims = args.max_seq_len
             self.loss_network = MetaLossNetwork(
-                self._num_inner_steps, num_loss_dims, args.loss_num_layers, use_step_loss=args.use_step_loss).to(self.device)
+                self._num_inner_steps, num_loss_dims, args.loss_num_layers, use_step_loss=args.use_step_loss).to(
+                self.device)
             self.loss_optimizer = optim.Adam(
                 self.loss_network.parameters(), lr=self._loss_lr, weight_decay=args.loss_weight_decay)
-            self.loss_lr_scheduler = optim.lr_scheduler.\
+            self.loss_lr_scheduler = optim.lr_scheduler. \
                 MultiStepLR(self.loss_optimizer, milestones=[
-                            500, 1000, 1500], gamma=0.7)
+                500, 1000, 1500], gamma=0.7)
 
         # STATS network
         # loss, mean, std, labels, and predictions are included for statistical information
         self.task_info_predictions = args.task_info_predictions
         self.task_info_loss = args.task_info_loss
         if self.use_adaptive_loss_weight:
-            num_loss_weight_dims = 1*args.task_info_loss + 1*args.task_info_rating_mean+1 * \
-                args.task_info_rating_std+1*args.task_info_predictions+1*args.task_info_labels
+            num_loss_weight_dims = 1 * args.task_info_loss + 1 * args.task_info_rating_mean + 1 * \
+                                   args.task_info_rating_std + 1 * args.task_info_predictions + 1 * args.task_info_labels
             self._task_info_lr = args.task_info_lr
             self.task_info_network = MetaTaskMLPNetwork(
                 num_loss_weight_dims, use_softmax=args.use_softmax).to(self.device)
             self.task_info_optimizer = optim.Adam(
                 self.task_info_network.parameters(), lr=self._task_info_lr)
-            self.task_info_lr_scheduler = optim.lr_scheduler.\
+            self.task_info_lr_scheduler = optim.lr_scheduler. \
                 MultiStepLR(self.task_info_optimizer, milestones=[
-                            500, 1000, 1500], gamma=0.7)
+                500, 1000, 1500], gamma=0.7)
 
         # lstm loss network
         if self.use_lstm:
             self._lstm_lr = args.lstm_lr
             lstm_hidden = args.lstm_hidden
             self.task_lstm_network = MetaTaskLstmNetwork(
-                input_size=args.lstm_input_size, lstm_hidden=lstm_hidden, num_lstm_layers=args.lstm_num_layers, lstm_out=0, device=self.device, use_softmax=args.use_softmax).to(self.device)
+                input_size=args.lstm_input_size, lstm_hidden=lstm_hidden, num_lstm_layers=args.lstm_num_layers,
+                lstm_out=0, device=self.device, use_softmax=args.use_softmax).to(self.device)
             self.task_lstm_optimizer = optim.Adam(
                 self.task_lstm_network.parameters(), lr=self._lstm_lr)
             self.lstm_lr_scheduler = optim.lr_scheduler.CosineAnnealingLR(
@@ -151,11 +152,11 @@ class MAML:
         self.use_mlp_mean = args.use_mlp_mean
 
         self.rating_info = {}
-        for i in range(1,6):
-            self.rating_info['rating_'+str(i)] = {}
-            self.rating_info['rating_'+str(i)]['loss'] = []
-            self.rating_info['rating_'+str(i)]['pred'] = []
-            self.rating_info['rating_'+str(i)]['num'] = []
+        for i in range(1, 6):
+            self.rating_info['rating_' + str(i)] = {}
+            self.rating_info['rating_' + str(i)]['loss'] = []
+            self.rating_info['rating_' + str(i)]['pred'] = []
+            self.rating_info['rating_' + str(i)]['num'] = []
 
         # best results
         self.best_step = 0
@@ -172,9 +173,9 @@ class MAML:
         the MSL (Multi Step Loss) mechanism.
         """
         loss_weights = np.ones(shape=(self._num_inner_steps)) * (
-            1.0 / self._num_inner_steps)
+                1.0 / self._num_inner_steps)
         decay_rate = 1.0 / self._num_inner_steps / \
-            self.args.multi_step_loss_num_epochs
+                     self.args.multi_step_loss_num_epochs
         min_value_for_non_final_losses = 0.03 / self._num_inner_steps
         for i in range(len(loss_weights) - 1):
             curr_value = np.maximum(
@@ -219,7 +220,8 @@ class MAML:
         names_grads_copy = dict(zip(names_weights_copy.keys(), grads))
 
         names_weights_copy = self.inner_loop_optimizer.update_params(names_weights_dict=names_weights_copy,
-                                                                     names_grads_wrt_params_dict=names_grads_copy, num_step=step)
+                                                                     names_grads_wrt_params_dict=names_grads_copy,
+                                                                     num_step=step)
 
         return names_weights_copy
 
@@ -253,7 +255,6 @@ class MAML:
         if self.use_adaptive_loss and self.use_mlp_mean:
             self.loss_optimizer.step()
         if self.use_lstm:
-
             self.task_lstm_optimizer.step()
             self.lstm_lr_scheduler.step()
         if self.use_adaptive_loss_weight:
@@ -266,17 +267,18 @@ class MAML:
 
     def eval_by_rating(self, output, target_rating, loss_fn):
         with torch.no_grad():
-            for i in range(1,6):
+            for i in range(1, 6):
                 if (target_rating == i).sum() > 0:
                     rating_value = (torch.sum(loss_fn(
-                            output*(target_rating == i), target_rating*(target_rating == i)))/(target_rating == i).sum())
-                
-                    self.rating_info['rating_'+str(i)]['loss'].append(rating_value.item())
-                    self.rating_info['rating_'+str(i)]['pred'] += (output[target_rating == i]).tolist()
-                    self.rating_info['rating_'+str(i)]['num'].append((target_rating == i).sum().item())
+                        output * (target_rating == i), target_rating * (target_rating == i))) / (
+                                                target_rating == i).sum())
 
+                    self.rating_info['rating_' + str(i)]['loss'].append(rating_value.item())
+                    self.rating_info['rating_' + str(i)]['pred'] += (output[target_rating == i]).tolist()
+                    self.rating_info['rating_' + str(i)]['num'].append((target_rating == i).sum().item())
 
-    def query_forward(self, query_inputs, query_target_rating, names_weights_copy, mae_loss_fn, imp_weight=1, train=False):
+    def query_forward(self, query_inputs, query_target_rating, names_weights_copy, mae_loss_fn, imp_weight=1,
+                      train=False):
         '''
         Forward propagation on query data
         Args:
@@ -296,23 +298,6 @@ class MAML:
         # forward propagate on query data
         outputs = self.model(query_inputs, params=names_weights_copy)
 
-        # predictions and targets
-        preds = outputs[:, -1:].detach().cpu().numpy()
-        true = query_target_rating.detach().cpu().numpy()
-
-        # additional metrics
-        r2 = r2_score(true, preds)
-        mse = mean_squared_error(true, preds)
-        mae = mean_absolute_error(true, preds)
-
-            # for wandb logging
-        self.latest_metrics = {
-        "R2": r2,
-        "MSE": mse,
-        "MAE": mae
-            }
-
-
         # labels
         gt = torch.cat(
             (query_inputs[3], query_target_rating), dim=1)
@@ -320,26 +305,47 @@ class MAML:
         # compute loss
         if self.normalize_loss:
             query_loss = loss_fn(
-                outputs*mask, gt*mask/5.0).sum()/mask.sum()
+                outputs * mask, gt * mask / 5.0).sum() / mask.sum()
             mae_loss = mae_loss_fn(
-                outputs[:, -1:].clone().detach()*5, query_target_rating)
+                outputs[:, -1:].clone().detach() * 5, query_target_rating)
             query_out_loss = torch.mean(loss_fn(
-                outputs[:, -1:]*5.0, query_target_rating)).clone().detach().to("cpu")
+                outputs[:, -1:] * 5.0, query_target_rating)).clone().detach().to("cpu")
             if not train:
-                self.eval_by_rating(outputs[:, -1:]*5.0, query_target_rating, loss_fn)
+                self.eval_by_rating(outputs[:, -1:] * 5.0, query_target_rating / 5, loss_fn)
         else:
-            query_loss = loss_fn(outputs*mask, gt*mask).sum()/mask.sum()
+            query_loss = loss_fn(outputs * mask, gt * mask).sum() / mask.sum()
             mae_loss = mae_loss_fn(
                 outputs[:, -1:].clone().detach(), query_target_rating)
             query_out_loss = torch.mean(loss_fn(
                 outputs[:, -1:], query_target_rating)).clone().detach().to("cpu")
             if not train:
                 self.eval_by_rating(outputs[:, -1:], query_target_rating, loss_fn)
-        
 
         query_loss = query_loss * imp_weight
 
-        return query_loss, query_out_loss, mae_loss, r2
+        tolerance = 0.5
+        correct = (torch.abs(outputs[:, -1:] * 5 - query_target_rating) <= tolerance).int()
+
+        tp = correct.sum().item()
+        total = query_target_rating.size(0)
+
+        precision = tp / total
+        recall = tp / total
+        f1 = 2 * precision * recall / (precision + recall + 1e-8)
+        hit = 1 if tp > 0 else 0
+
+        # Store for averaging over batch
+        if not hasattr(self, 'precision_list'): self.precision_list = []
+        if not hasattr(self, 'recall_list'): self.recall_list = []
+        if not hasattr(self, 'f1_list'): self.f1_list = []
+        if not hasattr(self, 'hit_list'): self.hit_list = []
+
+        self.precision_list.append(precision)
+        self.recall_list.append(recall)
+        self.f1_list.append(f1)
+        self.hit_list.append(hit)
+
+        return query_loss, query_out_loss, mae_loss
 
     def compute_adaptive_loss(self, loss, inputs, target_rating, step, mask, task_info):
         '''
@@ -366,7 +372,7 @@ class MAML:
                 loss = self.loss_network(adapt_loss, step).squeeze()
                 loss = torch.mean(loss)
             else:
-                loss = adapt_loss.sum()/torch.count_nonzero(adapt_loss)
+                loss = adapt_loss.sum() / torch.count_nonzero(adapt_loss)
 
         else:
             # use mlp state encoder
@@ -384,7 +390,7 @@ class MAML:
                     loss = self.loss_network(adapt_loss, step).squeeze()
                     loss = torch.mean(loss)
                 else:
-                    loss = adapt_loss.sum()/torch.count_nonzero(adapt_loss)
+                    loss = adapt_loss.sum() / torch.count_nonzero(adapt_loss)
             else:
                 loss = self.loss_network(
                     loss, step).squeeze()
@@ -393,9 +399,9 @@ class MAML:
 
     def focal_loss(self, x, y, ord=3):
         """
-            focal loss for regression 
+            focal loss for regression
         """
-        return torch.pow(torch.abs(y-x), ord)
+        return torch.pow(torch.abs(y - x), ord)
 
     # inner loop optimization
     def _inner_loop(self, support_data, task_info, query_inputs, query_target_rating, train):
@@ -426,7 +432,7 @@ class MAML:
         task_mse_losses = []
         task_mse_out_losses = []
         task_mae_losses = []
-        r2_loss = []
+
         # inner loop parameters phi
         names_weights_copy = self.get_inner_loop_parameter_dict(
             self.model.named_parameters())
@@ -434,11 +440,11 @@ class MAML:
         imp_vecs = self.get_per_step_loss_importance_vector()
 
         # GPU enabling
-        user_id, product_history, target_product_id,  product_history_ratings, target_rating = support_data
+        user_id, product_history, target_product_id, product_history_ratings, target_rating = support_data
         inputs = user_id.to(self.device), product_history.to(
             self.device), \
             target_product_id.to(
-                self.device),  product_history_ratings.to(self.device)
+                self.device), product_history_ratings.to(self.device)
         task_info = task_info.to(self.device)
 
         target_rating = target_rating.to(self.device)
@@ -453,9 +459,9 @@ class MAML:
             mask = (gt != 0)
             # compute mse loss
             if self.normalize_loss:
-                loss = loss_fn(outputs*mask, gt*mask/5.0)
+                loss = loss_fn(outputs * mask, gt * mask / 5.0)
             else:
-                loss = loss_fn(outputs*mask, gt*mask)
+                loss = loss_fn(outputs * mask, gt * mask)
 
             # adaptive weighted loss
             if self.use_adaptive_loss:
@@ -469,7 +475,7 @@ class MAML:
 
             # normal mse loss
             else:
-                loss = loss.sum()/mask.sum()
+                loss = loss.sum() / mask.sum()
 
             # update inner loop paramters phi
             names_weights_copy = self.apply_inner_loop_update(
@@ -477,20 +483,18 @@ class MAML:
 
             ##### multi step loss - update meta paramters ######
             if self.use_multi_step and self._train_step < self.args.multi_step_loss_num_epochs and train:
-                query_loss, query_out_loss, mae_loss, r2 = self.query_forward(
+                query_loss, query_out_loss, mae_loss = self.query_forward(
                     query_inputs, query_target_rating, names_weights_copy, mae_loss_fn, imp_vecs[step], train)
                 task_mse_losses.append(query_loss)
                 task_mse_out_losses.append(query_out_loss)
                 task_mae_losses.append(mae_loss)
-                r2_loss.append(r2)
 
             ##### maml loss - update meta paramters at last step ####
             ### also use this step for valid set ###
             else:
                 # at last step
                 if step == self._num_inner_steps - 1:
-
-                    query_loss, query_out_loss, mae_loss, r2 = self.query_forward(
+                    query_loss, query_out_loss, mae_loss = self.query_forward(
                         query_inputs, query_target_rating, names_weights_copy, mae_loss_fn, train)
                     task_mse_losses.append(query_loss)
                     task_mse_out_losses.append(query_out_loss)
@@ -499,7 +503,7 @@ class MAML:
         query_loss = torch.sum(torch.stack(task_mse_losses))
         query_out_loss = torch.mean(torch.stack(task_mse_out_losses))
         mae_loss = torch.mean(torch.stack(task_mae_losses))
-        return query_loss, query_out_loss, mae_loss, r2_loss
+        return query_loss, query_out_loss, mae_loss
 
     # outer loop
     def _outer_loop(self, task_batch, train=None):
@@ -513,12 +517,12 @@ class MAML:
             mse_loss: mean query MSE loss over the batch
             rmse_loss: mean query RMSE loss over the batch
             mae_loss: mean query MAE loss over the batch
+            precision@k, recall@k, hitrate@k
         """
 
         mse_loss_batch = []
         mse_loss_out_batch = []
         mae_loss_batch = []
-        r2_loss_batch = []
 
         self.zero_grad()
 
@@ -531,34 +535,44 @@ class MAML:
         for idx, task in enumerate(tqdm(task_batch)):
             # query data gpu loading
             support, query, task_info = task
-            user_id, product_history, target_product_id,  product_history_ratings, target_rating = query
+            user_id, product_history, target_product_id, product_history_ratings, target_rating = query
             query_inputs = user_id.to(self.device), product_history.to(
                 self.device), \
                 target_product_id.to(
-                    self.device),  product_history_ratings.to(self.device)
+                    self.device), product_history_ratings.to(self.device)
             query_target_rating = target_rating.to(self.device)
 
             # inner loop operation
-            query_loss, query_out_loss, mae_loss, r2 = self._inner_loop(
+            query_loss, query_out_loss, mae_loss = self._inner_loop(
                 support, task_info, query_inputs, query_target_rating, train)  # do inner loop
 
             # collect loss data
             mse_loss_batch.append(query_loss)
             mse_loss_out_batch.append(query_out_loss)
             mae_loss_batch.append(mae_loss.detach().to("cpu").item())
-            r2_loss_batch.append(r2)
 
         # set results
         mse_loss = torch.mean(torch.stack(mse_loss_batch))
         mse_loss_show = np.mean(mse_loss_out_batch)
         rmse_loss = np.sqrt(mse_loss_show)
         mae_loss = np.mean(mae_loss_batch)
-        r2_loss_outer = np.mean(r2_loss_batch)
         # Update meta parameters
         if train:
             self.update_meta_params(mse_loss)
 
-        return mse_loss_show, rmse_loss, mae_loss, r2_loss_outer
+        # Ranking-style metrics (based on binary relevance)
+        avg_precision = np.mean(getattr(self, 'precision_list', [0]))
+        avg_recall = np.mean(getattr(self, 'recall_list', [0]))
+        avg_f1 = np.mean(getattr(self, 'f1_list', [0]))
+        avg_hit = np.mean(getattr(self, 'hit_list', [0]))
+
+        # Clear for next batch
+        self.precision_list.clear()
+        self.recall_list.clear()
+        self.f1_list.clear()
+        self.hit_list.clear()
+
+        return mse_loss_show, rmse_loss, mae_loss, avg_precision, avg_recall, avg_f1, avg_hit
 
     def train(self, train_steps):
         """Train the MAML.
@@ -587,9 +601,9 @@ class MAML:
         val_batches = self.dataloader.generate_task(
             mode="valid", batch_size=self.val_size, normalized=self.normalize_loss, use_label=self.args.use_label)
 
-        start_point = self._train_step+1
+        start_point = self._train_step + 1
         # iteration
-        for i in range(start_point, train_steps+1):
+        for i in range(start_point, train_steps + 1):
             self._train_step += 1
 
             # generate train task batch
@@ -597,7 +611,7 @@ class MAML:
                 mode="train", batch_size=self.batch_size, normalized=self.normalize_loss, use_label=self.args.use_label)
 
             # update meta paramters and return losses
-            mse_loss, rmse_loss, mae_loss, _= self._outer_loop(
+            mse_loss, rmse_loss, mae_loss, avg_precision, avg_recall, avg_f1, avg_hit = self._outer_loop(
                 train_task, train=True)
 
             # looging
@@ -607,10 +621,15 @@ class MAML:
                     f'MSE loss: {mse_loss:.4f} | '
                     f'RMSE loss: {rmse_loss:.4f} | '
                     f'MAE loss: {mae_loss:.4f} | '
+                    f'precision: {avg_precision:.4f} | '
+                    f'recall: {avg_recall:.4f} | '
+                    f'f1: {avg_f1:.4f} | '
+                    f'hits: {avg_hit:.4f} | '
+
                 )
                 # writer.add_scalar("train/MSEloss", mse_loss, self._train_step)
                 # writer.add_scalar("train/RMSEloss",
-                                #   rmse_loss, self._train_step)
+                #   rmse_loss, self._train_step)
                 # writer.add_scalar("train/MAEloss", mae_loss, self._train_step)
 
             # evaluate validation set
@@ -618,30 +637,41 @@ class MAML:
                 # set validation tasks
                 val_mse_losses = []
                 val_mae_losses = []
-                for j in range(math.ceil(len(val_batches)/self.batch_size)):
-                    mse_loss, _, mae_loss, r2 = self._outer_loop(
-                        val_batches[j*self.batch_size: (j+1)*self.batch_size], train=False)
+                val_precision = []
+                val_recall = []
+                val_f1 = []
+                val_hits = []
+
+                for j in range(math.ceil(len(val_batches) / self.batch_size)):
+                    mse_loss, _, mae_loss, avg_precision, avg_recall, avg_f1, avg_hit = self._outer_loop(
+                        val_batches[j * self.batch_size: (j + 1) * self.batch_size], train=False)
                     val_mse_losses.append(mse_loss)
                     val_mae_losses.append(mae_loss)
+                    val_precision.append(avg_precision)
+                    val_recall.append(avg_recall)
+                    val_f1.append(avg_f1)
+                    val_hits.append(avg_hit)
 
                 mse_loss = np.mean(val_mse_losses)
                 rmse_loss = np.sqrt(mse_loss)
                 mae_loss = np.mean(val_mae_losses)
+                precision = np.mean(val_precision)
+                recall = np.mean(val_recall)
+                f1 = np.mean(val_f1)
+                hits = np.mean(val_hits)
 
                 print(
                     f'\tValidation: '
                     f'Val MSE loss: {mse_loss:.4f} | '
                     f'Val RMSE loss: {rmse_loss:.4f} | '
                     f'Val MAE loss: {mae_loss:.4f} | '
-                    f"R2: {r2} |"
-                )
+                    f'Val precision loss: {precision:.4f} | '
+                    f'Val recall loss: {recall:.4f} | '
+                    f'Val f1 loss: {f1:.4f} | '
+                    f'Val hits loss: {hits:.4f} | '
 
-                wandb.log({
-                "loss": rmse_loss,
-                "R2": r2,
-                "MSE": mse_loss,
-                "MAE": mae_loss
-                    })
+                )
+                wandb.log({"loss": rmse_loss})
                 self._save_model(best=False)
                 # Save the best model wrt valid rmse loss
                 if self.best_valid_rmse_loss > rmse_loss:
@@ -653,7 +683,7 @@ class MAML:
 
                 # writer.add_scalar("valid/MSEloss", mse_loss, self._train_step)
                 # writer.add_scalar("valid/RMSEloss",
-                                #   rmse_loss, self._train_step)
+                #   rmse_loss, self._train_step)
                 # writer.add_scalar("valid/MAEloss", mae_loss, self._train_step)
         # writer.close()
 
@@ -678,41 +708,56 @@ class MAML:
         wandb.config.update(self.args)
 
         test_batches = self.dataloader.generate_task(
-            mode="test", batch_size=self.args.num_test_data, normalized=self.normalize_loss, use_label=self.args.use_label)
+            mode="test", batch_size=self.args.num_test_data, normalized=self.normalize_loss,
+            use_label=self.args.use_label)
         test_mse_losses = []
         test_mae_losses = []
-        for i in range(math.ceil(len(test_batches)/self.batch_size)):
-            mse_loss, _, mae_loss, _ = self._outer_loop(
-                test_batches[i*self.batch_size: (i+1)*self.batch_size], train=False)
+        test_precision = []
+        test_recall = []
+        test_f1 = []
+        test_hits = []
+
+        for i in range(math.ceil(len(test_batches) / self.batch_size)):
+            mse_loss, _, mae_loss, avg_precision, avg_recall, avg_f1, avg_hit = self._outer_loop(
+                test_batches[i * self.batch_size: (i + 1) * self.batch_size], train=False)
             test_mse_losses.append(mse_loss)
             test_mae_losses.append(mae_loss)
 
         mse_loss = np.mean(test_mse_losses)
         rmse_loss = np.sqrt(mse_loss)
         mae_loss = np.mean(test_mae_losses)
+        precision = np.mean(test_precision)
+        recall = np.mean(test_recall)
+        f1 = np.mean(test_f1)
+        hits = np.mean(test_hits)
 
         print(
             f'\tTest: '
             f'Test RMSE loss: {rmse_loss:.4f} | '
             f'Test MAE loss: {mae_loss:.4f} | '
+            f'Test precision: {precision:.4f} | '
+            f'Test recall: {recall:.4f} | '
+            f'Test f1: {f1:.4f} | '
+            f'Test hits: {hits:.4f} | '
+
         )
         print(' -------- Rating ---- ')
-        for k,v in self.rating_info.items():
+        for k, v in self.rating_info.items():
             print('Information of ', k)
             print('The Number of items', np.sum(v['num']))
             print('Loss Mean', np.sqrt(np.mean((v['loss']))))
             print('Prediction Mean', np.mean((v['pred'])))
             print('Prediction Median', np.median((v['pred'])))
             print('Prediction Std', np.std((v['pred'])))
-
         wandb.log({
-        "Test RMSE loss": rmse_loss,
-        "Test MAE loss": mae_loss,
-        "Test R2": self.latest_metrics.get("R2", None),
-        "Test MSE": self.latest_metrics.get("MSE", None),
-        "Test MAE": self.latest_metrics.get("MAE", None)
-            })
+            "Test RMSE loss": rmse_loss,
+            "Test MAE loss": mae_loss,
+            "Test precision ": precision,
+            "Test recall ": recall,
+            "Test f1 ": f1,
+            "Test hits ": hits
 
+        })
 
     def test_baseline(self):
         '''
@@ -723,13 +768,14 @@ class MAML:
         mean_rating = np.mean(rating_lst, dtype='float32')
         print(mean_rating)
         test_batches = self.dataloader.generate_task(
-            mode="test", batch_size=self.args.num_test_data, normalized=self.normalize_loss, use_label=self.args.use_label)
+            mode="test", batch_size=self.args.num_test_data, normalized=self.normalize_loss,
+            use_label=self.args.use_label)
         mse_loss_batch = []
         mae_loss_batch = []
         for idx, task in enumerate(tqdm(test_batches)):
             # query data gpu loading
             _, query, _ = task
-            _, _, _,  _, target_rating = query
+            _, _, _, _, target_rating = query
             query_target_rating = target_rating.to(self.device)
             query_predict_rating = torch.ones_like(
                 target_rating).to(self.device) * mean_rating
@@ -746,44 +792,46 @@ class MAML:
             f'Test RMSE loss: {rmse_loss:.4f} | '
             f'Test MAE loss: {mae_loss:.4f} | '
         )
-    def load(self, checkpoint_step, best=True, load_path=None):
+
+    def load(self, checkpoint_step, best=True):
         '''
-            load meta parameters
+            load meta paramters
         '''
-        if load_path is not None:
-            target_path = load_path
-        elif best:
+        if best:
             target_path = os.path.join(
                 self._save_dir, f"{self.args.model}_{checkpoint_step}_best_{self.args.mode}_{self.args.model}.pt")
         else:
             target_path = os.path.join(
                 self._save_dir, f"{self.args.model}_{checkpoint_step}_{self.args.mode}_{self.args.model}.pt")
-
-        print("➡️ Ładuję checkpoint z:", target_path)
-
+        print("Loading checkpoint from", target_path)
         try:
             if torch.cuda.is_available():
-                def map_location(storage, loc): return storage.cuda()
+                def map_location(storage, loc):
+                    return storage.cuda()
             else:
                 map_location = 'cpu'
-
             checkpoint = torch.load(target_path, map_location=map_location)
             self.model.load_state_dict(checkpoint['meta_model'])
-            self.meta_lr_scheduler.load_state_dict(checkpoint['meta_model_scheduler'])
-            self.meta_optimizer.load_state_dict(checkpoint['meta_model_optimizer'])
-
+            self.meta_lr_scheduler.load_state_dict(
+                checkpoint['meta_model_scheduler'])
+            self.meta_optimizer.load_state_dict(
+                checkpoint['meta_model_optimizer'])
             if self.use_adaptive_loss:
                 self.loss_network.load_state_dict(checkpoint['loss_model'])
             if self.use_adaptive_loss_weight:
-                self.task_info_network.load_state_dict(checkpoint['loss_weight_model'])
+                self.task_info_network.load_state_dict(
+                    checkpoint['loss_weight_model'])
             if self.use_lstm:
-                self.task_lstm_network.load_state_dict(checkpoint['lstm_model'])
+                self.task_lstm_network.load_state_dict(
+                    checkpoint['lstm_model'])
             if self._use_learnable_params:
-                self.inner_loop_optimizer.load_state_dict(checkpoint['learning_rate'])
+                self.inner_loop_optimizer.load_state_dict(
+                    checkpoint['learning_rate']
+                )
 
         except:
-            raise ValueError(f'❌ No checkpoint for iteration {checkpoint_step} found or invalid file.')
-
+            raise ValueError(
+                f'No checkpoint for iteration {checkpoint_step} found.')
 
     def _save_model(self, best=True):
         '''
@@ -815,29 +863,36 @@ class MAML:
             load embedding parts of meta model
         """
         if torch.cuda.is_available():
-            def map_location(storage, loc): return storage.cuda()
+            def map_location(storage, loc):
+                return storage.cuda()
         else:
             map_location = 'cpu'
 
         if self.args.model == 'sasrec' or self.args.model == 'bert4rec':
             self.model.bert.bert_embedding.load_state_dict(torch.load(
-                os.path.join(self._embedding_dir, f"{self.args.model}_embedding_{self.args.mode}_{self.args.bert_hidden_units}_{self.args.bert_num_blocks}_{self.args.bert_num_heads}"), map_location=map_location))
+                os.path.join(self._embedding_dir,
+                             f"{self.args.model}_embedding_{self.args.mode}_{self.args.bert_hidden_units}_{self.args.bert_num_blocks}_{self.args.bert_num_heads}"),
+                map_location=map_location))
 
         else:
             self.model.embedding.load_state_dict(torch.load(
-                os.path.join(self._embedding_dir, f"{self.args.model}_embedding_{self.args.mode}"), map_location=map_location))
+                os.path.join(self._embedding_dir, f"{self.args.model}_embedding_{self.args.mode}"),
+                map_location=map_location))
 
     def _load_pretrained(self):
         """
             load pretrained meta model (all parameters of model)
         """
         if torch.cuda.is_available():
-            def map_location(storage, loc): return storage.cuda()
+            def map_location(storage, loc):
+                return storage.cuda()
         else:
             map_location = 'cpu'
 
         self.model.load_state_dict(torch.load(
-            os.path.join(self._pretrained_dir, f"{self.args.model}_pretrained_{self.args.mode}_{self.args.bert_hidden_units}_{self.args.bert_num_blocks}_{self.args.bert_num_heads}"), map_location=map_location))
+            os.path.join(self._pretrained_dir,
+                         f"{self.args.model}_pretrained_{self.args.mode}_{self.args.bert_hidden_units}_{self.args.bert_num_blocks}_{self.args.bert_num_heads}"),
+            map_location=map_location))
 
 
 def main(args):
@@ -845,7 +900,6 @@ def main(args):
         args.log_dir = os.path.join(os.path.abspath('.'), "log/")
 
     print(f'log_dir: {args.log_dir}')
-    print("➡️ Using data path:", args.data_path)
 
     maml = MAML(
         args
@@ -853,8 +907,7 @@ def main(args):
 
     if args.checkpoint_step > -1:
         maml._train_step = args.checkpoint_step
-        maml.load(args.checkpoint_step, args.test_best, args.load_path)
-
+        maml.load(args.checkpoint_step, args.test_best)
     else:
         print('Checkpoint loading skipped.')
 
