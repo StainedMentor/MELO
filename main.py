@@ -36,6 +36,8 @@ class MAML:
         self.args.num_users = self.dataloader.num_users
         self.args.num_items = self.dataloader.num_items
 
+        self.val_size = int(self.dataloader.num_samples*0.2)
+
         # set device
         self.device = torch.device('cpu')
         if torch.cuda.is_available():

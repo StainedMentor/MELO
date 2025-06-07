@@ -231,6 +231,7 @@ class DataLoader():
             split train, test, valid
         '''
         np.random.seed(self.random_seed)
+        num_test_data = int(len(df)*0.1)
         test_idxs = np.random.choice(
             len(df.index), num_test_data, replace=False)
         train_valid_idxs = np.setdiff1d(range(len(df.index)), test_idxs)
